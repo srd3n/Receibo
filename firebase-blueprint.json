@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account and profile data",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar URL"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Account registration timestamp"
+        }
+      },
+      "required": ["userId", "email"]
+    },
+    "ExpenseRecord": {
+      "title": "ExpenseRecord",
+      "description": "Itemized expense receipt record",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique expense record identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID"
+        },
+        "receiptNumber": {
+          "type": "string",
+          "description": "Unique receipt sequence serial"
+        },
+        "merchant": {
+          "type": "string",
+          "description": "Store or merchant name"
+        },
+        "location": {
+          "type": "string",
+          "description": "Store branch or location"
+        },
+        "date": {
+          "type": "string",
+          "description": "Transaction date YYYY-MM-DD"
+        },
+        "time": {
+          "type": "string",
+          "description": "Transaction time HH:mm"
+        },
+        "category": {
+          "type": "string",
+          "description": "Expense category"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Total amount paid"
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency symbol or code"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Tender payment method"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes or details"
+        },
+        "tax": {
+          "type": "number",
+          "description": "Value added tax"
+        },
+        "tip": {
+          "type": "number",
+          "description": "Gratuity or tip"
+        },
+        "starred": {
+          "type": "boolean",
+          "description": "Whether expense is favorited"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Record creation ISO timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Record last update ISO timestamp"
+        }
+      },
+      "required": ["id", "userId", "receiptNumber", "merchant", "date", "category", "amount", "paymentMethod"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Stores user profile metadata"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": "ExpenseRecord",
+      "description": "Stores user specific private receipt expense records"
+    }
+  }
+}

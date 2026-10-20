@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUser(data, userId) {
+      return data.userId == userId
+        && data.email is string
+        && data.email.size() <= 150;
+    }
+
+    function isValidExpense(data, userId) {
+      return data.userId == userId
+        && data.id is string
+        && data.id.size() <= 128
+        && data.receiptNumber is string
+        && data.receiptNumber.size() <= 64
+        && data.merchant is string
+        && data.merchant.size() > 0
+        && data.merchant.size() <= 200
+        && data.date is string
+        && data.date.size() <= 20
+        && data.category is string
+        && data.category.size() <= 50
+        && data.amount is number
+        && data.amount > 0
+        && data.paymentMethod is string
+        && data.paymentMethod.size() <= 50;
+    }
+
+    // User Profile Document
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false; // Strict PII protection
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming(), userId);
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming(), userId) && incoming().userId == existing().userId;
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // User Isolated Expense Receipts Subcollection
+      match /expenses/{expenseId} {
+        allow get: if isOwner(userId) && isValidId(expenseId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(expenseId) && isValidExpense(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(expenseId) && isValidExpense(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(expenseId);
+      }
+    }
+  }
+}

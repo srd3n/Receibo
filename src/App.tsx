@@ -15,12 +15,24 @@ import MasterReceiptView from './components/MasterReceiptView';
 import ExpenseModal from './components/ExpenseModal';
 import ReceiptDetailModal from './components/ReceiptDetailModal';
 import PrintMasterRollModal from './components/PrintMasterRollModal';
+import LoginModal from './components/LoginModal';
+import { useAuth } from './firebase/authContext';
+import { testConnection } from './firebase/config';
+import {
+  subscribeToUserExpenses,
+  saveExpenseToCloud,
+  deleteExpenseFromCloud,
+  migrateLocalExpensesToCloud,
+} from './firebase/expenseService';
 
 const STORAGE_KEY = 'tally_receipt_expenses_php_v3';
 const CURRENCY_KEY = 'tally_receipt_currency_php_v3';
 
 export default function App() {
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
+  const { user } = useAuth();
+
+  // Local storage state for guest mode
+  const [localExpenses, setLocalExpenses] = useState<Expense[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -34,6 +46,9 @@ export default function App() {
     }
     return INITIAL_EXPENSES;
   });
+
+  // Current active expenses (either cloud-synced or local guest)
+  const [expenses, setExpenses] = useState<Expense[]>(localExpenses);
 
   const [selectedCurrency, setSelectedCurrency] = useState<string>(() => {
     try {
@@ -53,15 +68,42 @@ export default function App() {
   const [expenseToEdit, setExpenseToEdit] = useState<Expense | null>(null);
   const [selectedExpenseForDetail, setSelectedExpenseForDetail] = useState<Expense | null>(null);
   const [isDownloadMasterRollOpen, setIsDownloadMasterRollOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
-  // Sync to localStorage
+  // Test Firestore connection on mount
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
-    } catch (err) {
-      console.error('Failed to save to localStorage:', err);
+    testConnection();
+  }, []);
+
+  // When user logs in, subscribe to their cloud Firestore expenses
+  useEffect(() => {
+    if (user) {
+      const unsubscribe = subscribeToUserExpenses(
+        user.uid,
+        (cloudExpenses) => {
+          setExpenses(cloudExpenses);
+        },
+        (error) => {
+          console.error('Failed to load cloud expenses:', error);
+        }
+      );
+      return () => unsubscribe();
+    } else {
+      // Guest mode: use local storage records
+      setExpenses(localExpenses);
     }
-  }, [expenses]);
+  }, [user, localExpenses]);
+
+  // Sync guest expenses to localStorage
+  useEffect(() => {
+    if (!user) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(localExpenses));
+      } catch (err) {
+        console.error('Failed to save to localStorage:', err);
+      }
+    }
+  }, [localExpenses, user]);
 
   useEffect(() => {
     try {
@@ -96,12 +138,16 @@ export default function App() {
     // Sort
     result.sort((a, b) => {
       if (sortBy === 'date-desc') {
-        return new Date(b.date + ' ' + (b.time || '00:00')).getTime() -
-               new Date(a.date + ' ' + (a.time || '00:00')).getTime();
+        return (
+          new Date(b.date + ' ' + (b.time || '00:00')).getTime() -
+          new Date(a.date + ' ' + (a.time || '00:00')).getTime()
+        );
       }
       if (sortBy === 'date-asc') {
-        return new Date(a.date + ' ' + (a.time || '00:00')).getTime() -
-               new Date(b.date + ' ' + (b.time || '00:00')).getTime();
+        return (
+          new Date(a.date + ' ' + (a.time || '00:00')).getTime() -
+          new Date(b.date + ' ' + (b.time || '00:00')).getTime()
+        );
       }
       if (sortBy === 'amount-desc') {
         return b.amount - a.amount;
@@ -115,38 +161,77 @@ export default function App() {
     return result;
   }, [expenses, selectedCategory, searchQuery, sortBy]);
 
-  // Handlers
-  const handleSaveExpense = (newExpense: Expense) => {
-    setExpenses((prev) => {
-      const exists = prev.some((e) => e.id === newExpense.id);
-      if (exists) {
-        return prev.map((e) => (e.id === newExpense.id ? newExpense : e));
+  // Handlers for Save, Delete, Duplicate
+  const handleSaveExpense = async (newExpense: Expense) => {
+    if (user) {
+      // Cloud user: save directly to Firestore
+      try {
+        await saveExpenseToCloud(user.uid, newExpense);
+      } catch (err) {
+        console.error('Failed to save to cloud:', err);
+        alert('Could not save to cloud storage. Please check connection.');
       }
-      return [newExpense, ...prev];
-    });
+    } else {
+      // Guest user: save to local storage
+      setLocalExpenses((prev) => {
+        const exists = prev.some((e) => e.id === newExpense.id);
+        if (exists) {
+          return prev.map((e) => (e.id === newExpense.id ? newExpense : e));
+        }
+        return [newExpense, ...prev];
+      });
+    }
   };
 
-  const handleDeleteExpense = (id: string) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
+  const handleDeleteExpense = async (id: string) => {
+    if (user) {
+      try {
+        await deleteExpenseFromCloud(user.uid, id);
+      } catch (err) {
+        console.error('Failed to delete from cloud:', err);
+      }
+    } else {
+      setLocalExpenses((prev) => prev.filter((e) => e.id !== id));
+    }
     if (selectedExpenseForDetail?.id === id) {
       setSelectedExpenseForDetail(null);
     }
   };
 
-  const handleDuplicateExpense = (item: Expense) => {
+  const handleDuplicateExpense = async (item: Expense) => {
     const duplicated: Expense = {
       ...item,
       id: `exp-${Date.now()}`,
       receiptNumber: `RCP-${Math.floor(10000 + Math.random() * 90000)}`,
       notes: item.notes ? `${item.notes} (Copy)` : 'Copy of transaction',
     };
-    setExpenses((prev) => [duplicated, ...prev]);
+    await handleSaveExpense(duplicated);
+  };
+
+  const handleMigrateLocalData = async () => {
+    if (!user || localExpenses.length === 0) return;
+    try {
+      await migrateLocalExpensesToCloud(user.uid, localExpenses);
+      alert(`Successfully backed up ${localExpenses.length} receipts to your cloud account!`);
+    } catch (err) {
+      console.error('Migration failed:', err);
+      alert('Failed to back up some records to cloud.');
+    }
   };
 
   const handleResetSampleData = () => {
-    if (window.confirm('Reset all expenses back to the updated Philippine Peso sample receipt batch?')) {
-      setExpenses(INITIAL_EXPENSES);
-      setSelectedCurrency('₱');
+    if (
+      window.confirm(
+        user
+          ? 'Load initial sample receipts into your cloud account?'
+          : 'Reset all offline receipts back to the sample receipt batch?'
+      )
+    ) {
+      if (user) {
+        INITIAL_EXPENSES.forEach((e) => saveExpenseToCloud(user.uid, e));
+      } else {
+        setLocalExpenses(INITIAL_EXPENSES);
+      }
       setSelectedCategory('All');
       setSearchQuery('');
     }
@@ -154,7 +239,17 @@ export default function App() {
 
   const handleExportCSV = () => {
     if (expenses.length === 0) return;
-    const headers = ['Receipt #', 'Date', 'Time', 'Merchant', 'Category', 'Payment Method', 'Amount (PHP)', 'Currency', 'Notes'];
+    const headers = [
+      'Receipt #',
+      'Date',
+      'Time',
+      'Merchant',
+      'Category',
+      'Payment Method',
+      'Amount (PHP)',
+      'Currency',
+      'Notes',
+    ];
     const rows = expenses.map((e) => [
       e.receiptNumber,
       e.date,
@@ -172,7 +267,10 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `tally-receipts-php-${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute(
+      'download',
+      `tally-receipts-php-${new Date().toISOString().slice(0, 10)}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -190,10 +288,40 @@ export default function App() {
         }}
         onExportAll={handleExportCSV}
         onOpenDownloadMasterRoll={() => setIsDownloadMasterRollOpen(true)}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
       />
 
+      {/* Cloud Sync Status Banner */}
+      <div className="bg-stone-100/60 border-b border-stone-200 py-1.5 px-4 text-[11px] font-mono text-stone-600">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                user ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-stone-400'
+              }`}
+            />
+            {user ? (
+              <span>
+                Signed in as <strong className="text-stone-900">{user.displayName || user.email}</strong> · Receipts automatically saved to Cloud Firestore
+              </span>
+            ) : (
+              <span>
+                Offline Mode (Local Storage) · Sign in with Google to sync & protect your receipts
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={() => setIsLoginModalOpen(true)}
+            className="text-stone-900 font-semibold hover:underline"
+          >
+            {user ? 'Account Settings' : 'Sign In with Google →'}
+          </button>
+        </div>
+      </div>
+
       {/* Main Workspace Canvas with bottom padding for mobile navigation */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-10 pb-28 md:pb-12">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 pb-28 md:pb-12">
         {/* Register Top Summary Stats */}
         <ReceiptStats
           expenses={filteredExpenses}
@@ -224,7 +352,9 @@ export default function App() {
             <p className="text-xs text-stone-500 mb-6">
               {searchQuery || selectedCategory !== 'All'
                 ? 'No receipts matched your filter parameters. Try clearing the search or category filter.'
-                : 'Your receipt ledger is empty. Log your first expense slip or load sample records.'}
+                : user
+                ? 'Your cloud receipt ledger is empty. Log your first expense slip or load sample records.'
+                : 'Your receipt ledger is empty. Log your first expense slip or sign in to sync cloud records.'}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               {(searchQuery || selectedCategory !== 'All') && (
@@ -300,15 +430,22 @@ export default function App() {
         {/* Bottom Utility Controls */}
         <div className="mt-12 sm:mt-16 pt-5 sm:pt-6 border-t border-stone-300 flex flex-col sm:flex-row items-center justify-between text-xs text-stone-500 font-mono gap-3 text-center sm:text-left">
           <div>
-            Showing {filteredExpenses.length} of {expenses.length} total receipts recorded in Philippine Peso (₱)
+            Showing {filteredExpenses.length} of {expenses.length} receipts · {user ? 'Cloud Database Storage' : 'Local Device Storage'} (₱)
           </div>
           <div className="flex items-center gap-4 flex-wrap justify-center">
             <button
-              onClick={() => setIsDownloadMasterRollOpen(true)}
+              onClick={() => setIsLoginModalOpen(true)}
               className="text-stone-900 hover:underline font-semibold min-h-[36px] flex items-center gap-1"
             >
-              <span>📥</span>
-              <span>Download Master Roll</span>
+              <span>👤</span>
+              <span>{user ? 'Account Profile' : 'Cloud Login'}</span>
+            </button>
+            <span aria-hidden="true">·</span>
+            <button
+              onClick={() => setIsDownloadMasterRollOpen(true)}
+              className="hover:text-stone-900 transition-colors underline min-h-[36px] flex items-center"
+            >
+              Download Master Roll
             </button>
             <span aria-hidden="true">·</span>
             <button
@@ -359,6 +496,14 @@ export default function App() {
         onClose={() => setIsDownloadMasterRollOpen(false)}
         expenses={expenses}
         currencySymbol={selectedCurrency}
+      />
+
+      {/* Login & Cloud Sync Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onMigrateLocalData={handleMigrateLocalData}
+        localCount={localExpenses.length}
       />
     </div>
   );
