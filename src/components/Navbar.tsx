@@ -34,9 +34,10 @@ export default function Navbar({
                   e.preventDefault();
                   onViewModeChange('slips');
                 }}
-                className="text-lg sm:text-xl font-bold tracking-tight text-stone-900 whitespace-nowrap shrink-0 font-sans"
+                className="text-lg sm:text-xl font-bold tracking-tight text-stone-900 whitespace-nowrap shrink-0 font-sans flex items-baseline gap-1"
               >
-                TallyReceipt
+                <span>Receibo</span>
+                <span className="text-xs font-mono font-semibold text-stone-500 hidden sm:inline">: Tally</span>
               </a>
               <span className="text-[10px] uppercase font-mono tracking-widest text-stone-500 bg-stone-200/80 px-1.5 py-0.5 rounded hidden xs:inline-block">
                 PHP · ₱

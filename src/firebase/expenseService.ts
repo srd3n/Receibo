@@ -105,13 +105,24 @@ export async function deleteExpenseFromCloud(userId: string, expenseId: string):
 
 export async function migrateLocalExpensesToCloud(
   userId: string,
-  localExpenses: Expense[]
+  localExpenses: Expense[],
+  existingCloudExpenses: Expense[] = []
 ): Promise<number> {
-  if (localExpenses.length === 0) return 0;
+  const existingIds = new Set(existingCloudExpenses.map((e) => e.id));
+  const existingKeys = new Set(
+    existingCloudExpenses.map((e) => `${e.receiptNumber}-${e.date}-${e.amount}`)
+  );
+
+  // Filter out any items that already exist in cloud storage
+  const toUpload = localExpenses.filter(
+    (exp) => !existingIds.has(exp.id) && !existingKeys.has(`${exp.receiptNumber}-${exp.date}-${exp.amount}`)
+  );
+
+  if (toUpload.length === 0) return 0;
   let count = 0;
   const batch = writeBatch(db);
 
-  for (const exp of localExpenses) {
+  for (const exp of toUpload) {
     const ref = doc(db, 'users', userId, 'expenses', exp.id);
     const cleanPayload: Record<string, unknown> = {
       id: exp.id,
@@ -135,7 +146,7 @@ export async function migrateLocalExpensesToCloud(
     if (exp.items && exp.items.length > 0) {
       cleanPayload.items = exp.items;
     }
-    batch.set(ref, cleanPayload);
+    batch.set(ref, cleanPayload, { merge: true });
     count++;
   }
 

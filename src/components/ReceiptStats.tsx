@@ -4,9 +4,10 @@ import { formatCurrency } from '../utils/formatters';
 interface ReceiptStatsProps {
   expenses: Expense[];
   currencySymbol: string;
+  isCloud?: boolean;
 }
 
-export default function ReceiptStats({ expenses, currencySymbol }: ReceiptStatsProps) {
+export default function ReceiptStats({ expenses, currencySymbol, isCloud }: ReceiptStatsProps) {
   const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
   const avgAmount = expenses.length > 0 ? totalAmount / expenses.length : 0;
 
@@ -72,7 +73,9 @@ export default function ReceiptStats({ expenses, currencySymbol }: ReceiptStatsP
 
       <div className="pt-3 flex flex-col xs:flex-row items-start xs:items-center justify-between text-[11px] text-stone-500 font-mono gap-1">
         <span>* Verified Personal Expense Ledger & Tax Audit Records *</span>
-        <span className="text-stone-400">Offline Local Storage</span>
+        <span className={isCloud ? 'text-emerald-700 font-medium' : 'text-stone-400'}>
+          {isCloud ? '🟢 Google Cloud Firestore' : 'Offline Local Storage'}
+        </span>
       </div>
     </section>
   );

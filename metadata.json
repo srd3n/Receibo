@@ -1,5 +1,5 @@
 {
-  "name": "TallyReceipt - Minimalist Expense Ledger",
+  "name": "Receibo: Tally Receipt Ledger",
   "description": "A clean, minimalist receipt-style expense tracker highlighting amounts with thermal register typography and detailed transaction breakdowns.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

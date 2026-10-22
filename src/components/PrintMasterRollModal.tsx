@@ -403,7 +403,7 @@ export default function PrintMasterRollModal({
                   {/* Master Store Header */}
                   <div className="text-center pb-5 border-b border-stone-300">
                     <span className="text-[10px] sm:text-xs uppercase tracking-widest text-stone-500 font-semibold block">
-                      * TALLYRECEIPT · MASTER AUDIT ROLL *
+                      * RECEIBO : TALLY · MASTER AUDIT ROLL *
                     </span>
                     <h1 className="text-2xl sm:text-3xl font-bold font-sans tracking-tight text-stone-900 uppercase mt-1">
                       Expense Ledger

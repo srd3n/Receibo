@@ -16,6 +16,7 @@ import ExpenseModal from './components/ExpenseModal';
 import ReceiptDetailModal from './components/ReceiptDetailModal';
 import PrintMasterRollModal from './components/PrintMasterRollModal';
 import LoginModal from './components/LoginModal';
+import FirstLaunchModal from './components/FirstLaunchModal';
 import { useAuth } from './firebase/authContext';
 import { testConnection } from './firebase/config';
 import {
@@ -27,9 +28,10 @@ import {
 
 const STORAGE_KEY = 'tally_receipt_expenses_php_v3';
 const CURRENCY_KEY = 'tally_receipt_currency_php_v3';
+const PREF_MODE_KEY = 'receibo_user_mode_pref'; // 'local' | 'cloud'
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   // Local storage state for guest mode
   const [localExpenses, setLocalExpenses] = useState<Expense[]>(() => {
@@ -69,6 +71,17 @@ export default function App() {
   const [selectedExpenseForDetail, setSelectedExpenseForDetail] = useState<Expense | null>(null);
   const [isDownloadMasterRollOpen, setIsDownloadMasterRollOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isFirstLaunchOpen, setIsFirstLaunchOpen] = useState(false);
+
+  // Check first-launch preference once auth state is settled
+  useEffect(() => {
+    if (!authLoading) {
+      const savedPref = localStorage.getItem(PREF_MODE_KEY);
+      if (!savedPref && !user) {
+        setIsFirstLaunchOpen(true);
+      }
+    }
+  }, [authLoading, user]);
 
   // Test Firestore connection on mount
   useEffect(() => {
@@ -208,11 +221,34 @@ export default function App() {
     await handleSaveExpense(duplicated);
   };
 
+  // First-launch handlers
+  const handleChooseLocal = () => {
+    try {
+      localStorage.setItem(PREF_MODE_KEY, 'local');
+    } catch {
+      // Ignore
+    }
+    setIsFirstLaunchOpen(false);
+  };
+
+  const handleLoginSuccess = () => {
+    try {
+      localStorage.setItem(PREF_MODE_KEY, 'cloud');
+    } catch {
+      // Ignore
+    }
+    setIsFirstLaunchOpen(false);
+  };
+
   const handleMigrateLocalData = async () => {
     if (!user || localExpenses.length === 0) return;
     try {
-      await migrateLocalExpensesToCloud(user.uid, localExpenses);
-      alert(`Successfully backed up ${localExpenses.length} receipts to your cloud account!`);
+      const count = await migrateLocalExpensesToCloud(user.uid, localExpenses, expenses);
+      if (count > 0) {
+        alert(`Successfully transferred ${count} offline ${count === 1 ? 'receipt' : 'receipts'} to your cloud account!`);
+      } else {
+        alert('All offline receipts are already synchronized with your cloud account.');
+      }
     } catch (err) {
       console.error('Migration failed:', err);
       alert('Failed to back up some records to cloud.');
@@ -269,7 +305,7 @@ export default function App() {
     link.setAttribute('href', url);
     link.setAttribute(
       'download',
-      `tally-receipts-php-${new Date().toISOString().slice(0, 10)}.csv`
+      `receibo-tally-export-${new Date().toISOString().slice(0, 10)}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -306,7 +342,7 @@ export default function App() {
               </span>
             ) : (
               <span>
-                Offline Mode (Local Storage) · Sign in with Google to sync & protect your receipts
+                Offline Mode (Local Storage) · Sign in with Google to sync across devices or change mode
               </span>
             )}
           </div>
@@ -326,6 +362,7 @@ export default function App() {
         <ReceiptStats
           expenses={filteredExpenses}
           currencySymbol={selectedCurrency}
+          isCloud={Boolean(user)}
         />
 
         {/* Filter, Search, Sort & Currency Switcher Bar */}
@@ -498,12 +535,19 @@ export default function App() {
         currencySymbol={selectedCurrency}
       />
 
-      {/* Login & Cloud Sync Modal */}
+      {/* Account Profile & Cloud Sync Settings Modal */}
       <LoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         onMigrateLocalData={handleMigrateLocalData}
         localCount={localExpenses.length}
+      />
+
+      {/* First-Launch Onboarding Modal */}
+      <FirstLaunchModal
+        isOpen={isFirstLaunchOpen}
+        onChooseLocal={handleChooseLocal}
+        onLoginSuccess={handleLoginSuccess}
       />
     </div>
   );

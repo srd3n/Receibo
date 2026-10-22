@@ -90,7 +90,7 @@ export default function LoginModal({
             {/* Store / Receipt Header */}
             <div className="text-center pb-4 border-b border-stone-200">
               <span className="text-[10px] uppercase tracking-widest text-stone-500 font-semibold block">
-                * TALLYRECEIPT · USER AUTHENTICATION *
+                * RECEIBO : TALLY · USER AUTHENTICATION *
               </span>
               <h2 id="login-modal-title" className="text-xl sm:text-2xl font-bold font-sans tracking-tight text-stone-900 uppercase mt-1">
                 {user ? 'Account Profile' : 'Cloud Sync Login'}
